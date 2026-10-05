@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Invia un testo al lettore RSVP</title>
+<style>
+  :root {
+    --carta: #EEF0F2;
+    --pannello: #FFFFFF;
+    --inchiostro: #16191D;
+    --tenue: #5B646E;
+    --linea: #C9CFD6;
+    --display: #000000;
+    --orp: #FF8C00;
+    --ok: #1B7A4A;
+    --errore: #B3261E;
+    --avviso: #8A5A00;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--carta);
+    color: var(--inchiostro);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: calc(24px + env(safe-area-inset-top, 0px)) 16px calc(56px + env(safe-area-inset-bottom, 0px)); }
+  h1 { font-size: 1.5rem; line-height: 1.2; margin: 0 0 6px; font-weight: 650; }
+  .intro { margin: 0 0 20px; color: var(--tenue); max-width: 60ch; }
+
+  /* Anteprima: riproduce il display del lettore. La lettera rossa sta sempre al centro. */
+  .schermo {
+    background: var(--display);
+    color: #fff;
+    border-radius: 6px;
+    padding: 30px 0 18px;
+    font-family: "DejaVu Sans", Verdana, sans-serif;
+  }
+  .parola {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    font-size: clamp(1.7rem, 8vw, 2.5rem);
+    line-height: 1.25;
+    min-height: 1.25em;
+  }
+  .parola .prima { text-align: right; overflow: hidden; white-space: nowrap; }
+  .parola .orp { color: var(--orp); }
+  .parola .dopo { text-align: left; overflow: hidden; white-space: nowrap; }
+  .parola.vuota { display: block; text-align: center; font-size: 1.1rem; color: #8A9199; }
+  .dati { margin: 18px 16px 0; font-size: 0.875rem; color: #9AA1A8; text-align: center; }
+
+  section { background: var(--pannello); border: 1px solid var(--linea); border-radius: 6px; padding: 16px; margin-top: 16px; }
+  h2 { font-size: 1rem; margin: 0 0 10px; font-weight: 650; }
+
+  .riga { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button, .bottone {
+    font: inherit; cursor: pointer; border-radius: 4px; padding: 10px 16px;
+    border: 1px solid var(--inchiostro); background: var(--inchiostro); color: #fff;
+  }
+  button.secondario, .bottone.secondario { background: transparent; color: var(--inchiostro); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:focus-visible, .bottone:focus-within, textarea:focus-visible { outline: 3px solid #2563EB; outline-offset: 2px; }
+  .bottone input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .bottone { display: inline-block; }
+
+  .stato { color: var(--tenue); font-size: 0.9375rem; }
+  .stato.ok { color: var(--ok); }
+  .stato.errore { color: var(--errore); }
+
+  textarea {
+    width: 100%; min-height: 180px; resize: vertical; font: inherit; line-height: 1.45;
+    padding: 10px 12px; border: 1px solid var(--linea); border-radius: 4px; background: #fff; color: var(--inchiostro);
+  }
+  .avvisi { margin: 10px 0 0; padding: 0; list-style: none; font-size: 0.9375rem; color: var(--avviso); }
+  .avvisi li + li { margin-top: 4px; }
+
+  .campo { display: inline-flex; align-items: center; gap: 6px; }
+  input[type="number"] {
+    width: 5.5em; font: inherit; padding: 8px 8px; border: 1px solid var(--linea);
+    border-radius: 4px; background: #fff; color: var(--inchiostro);
+  }
+  input[type="number"]:focus-visible { outline: 3px solid #2563EB; outline-offset: 2px; }
+  progress { width: 100%; height: 10px; margin-top: 14px; accent-color: var(--inchiostro); }
+  .esito { margin: 12px 0 0; min-height: 1.5em; }
+  .esito.ok { color: var(--ok); }
+  .esito.errore { color: var(--errore); }
+  .nota { color: var(--tenue); font-size: 0.875rem; margin-top: 18px; max-width: 62ch; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Invia un testo al lettore</h1>
+  <p class="intro">Incolla un testo o scegli un file .txt o .pdf, collega il lettore e invia. La lettura parte da sola sul dispositivo.</p>
+
+  <div class="schermo" aria-label="Anteprima del display del lettore">
+    <div class="parola vuota" id="parola">Incolla un testo per vedere l'anteprima</div>
+    <div class="dati" id="dati" aria-live="polite"></div>
+  </div>
+
+  <section>
+    <h2>Collegamento</h2>
+    <div class="riga">
+      <button id="btnConnetti">Collega il lettore</button>
+      <button id="btnScollega" class="secondario" hidden>Scollega</button>
+      <span class="stato" id="statoConnessione" aria-live="polite">Non collegato</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Testo</h2>
+    <textarea id="testo" placeholder="Incolla qui il testo da leggere" spellcheck="false"></textarea>
+    <div class="riga" style="margin-top:10px">
+      <label class="bottone secondario">Scegli un file .txt o .pdf
+        <input type="file" id="file" accept=".txt,.pdf,text/plain,application/pdf">
+      </label>
+      <span class="stato" id="nomeFile"></span>
+    </div>
+    <div class="riga" id="pannelloPdf" style="margin-top:10px" hidden>
+      <span class="stato" id="infoPdf"></span>
+      <label class="campo">Da pagina <input type="number" id="paginaDa" min="1" value="1"></label>
+      <label class="campo">a <input type="number" id="paginaA" min="1" value="1"></label>
+      <button id="btnEstrai" class="secondario">Estrai il testo</button>
+    </div>
+    <p class="stato" id="esitoPdf" aria-live="polite" style="margin:8px 0 0"></p>
+    <ul class="avvisi" id="avvisi" aria-live="polite"></ul>
+  </section>
+
+  <section>
+    <h2>Invio</h2>
+    <button id="btnInvia" disabled>Invia al lettore</button>
+    <progress id="progresso" value="0" max="100" hidden></progress>
+    <p class="esito" id="esito" aria-live="polite"></p>
+  </section>
+
+  <p class="nota">Funziona con Chrome o Edge su computer e su Android. Safari e iPhone non supportano il Bluetooth dal browser. I PDF devono contenere testo: le scansioni (immagini) non si possono leggere. Il lettore legge al massimo 3000 parole per volta.</p>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+// ==================================================================
+// LOGICA (nessun accesso alla pagina: si puo' provare anche senza browser)
+// ==================================================================
+const SERVICE_UUID     = "6f2a1000-6a4e-4b3e-9a1a-3f2c1d9e7a10";
+const CHAR_LENGTH_UUID = "6f2a1001-6a4e-4b3e-9a1a-3f2c1d9e7a10";
+const CHAR_CHUNK_UUID  = "6f2a1002-6a4e-4b3e-9a1a-3f2c1d9e7a10";
+const CHAR_STATUS_UUID = "6f2a1003-6a4e-4b3e-9a1a-3f2c1d9e7a10";
+
+// Limiti del firmware (MAX_TEXT_SIZE - 1 e MAX_PAROLE)
+const LIMITE_BYTE = 32767;
+const LIMITE_PAROLE = 3000;
+
+const DIMENSIONE_CHUNK = 200;   // byte per scrittura Bluetooth
+const WPM_STIMA = 300;          // solo per la stima dei minuti
+
+const STATUS_RECEIVING = 1;
+const STATUS_DONE = 2;
+const STATUS_ERROR = 3;
+
+// Il font del display copre solo i caratteri Latin-1 (codici 32-255).
+// Qui sostituiamo i simboli piu' comuni nei testi veri che ne sono fuori.
+const SOSTITUZIONI = [
+  [/[\u2018\u2019\u201A\u201B\u2032]/g, "'"],
+  [/[\u201C\u201D\u201E\u201F\u2033]/g, '"'],
+  [/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, "-"],
+  [/\u2026/g, "..."],
+  [/[\u2022\u25AA\u25CF\u25E6]/g, "-"],
+  [/\u20AC/g, "euro"],
+  [/\uFB00/g, "ff"], [/\uFB01/g, "fi"], [/\uFB02/g, "fl"],
+  [/\uFB03/g, "ffi"], [/\uFB04/g, "ffl"],
+  [/\u0153/g, "oe"], [/\u0152/g, "OE"],
+  [/[\u00AD\u200B-\u200D\u2060\uFEFF]/g, ""],            // invisibili
+  [/[ \t\r\n\f\v\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+/g, " "]  // spazi
+];
+
+// Ritorna il testo pulito e quanti caratteri non disegnabili sono stati tolti.
+function pulisciTesto(originale) {
+  let testo = originale.normalize("NFC");          // "e" + accento -> "è" in un solo carattere
+  for (const [cerca, metti] of SOSTITUZIONI) testo = testo.replace(cerca, metti);
+
+  let rimossi = 0;
+  let pulito = "";
+  for (const carattere of testo) {                 // scorre per carattere vero, non per byte
+    const codice = carattere.codePointAt(0);
+    if ((codice >= 32 && codice <= 126) || (codice >= 160 && codice <= 255)) {
+      pulito += carattere;
+    } else {
+      rimossi++;
+    }
+  }
+  return { testo: pulito.replace(/ {2,}/g, " ").trim(), rimossi };
+}
+
+// Taglia ai limiti del dispositivo, sempre a fine parola.
+function limitaAlDispositivo(testo) {
+  const parole = testo === "" ? [] : testo.split(" ");
+  const codificatore = new TextEncoder();
+  let byte = 0;
+  let tenute = 0;
+  for (const parola of parole) {
+    const dimensione = codificatore.encode(parola).length + (tenute > 0 ? 1 : 0);
+    if (tenute >= LIMITE_PAROLE || byte + dimensione > LIMITE_BYTE) break;
+    byte += dimensione;
+    tenute++;
+  }
+  return {
+    testo: parole.slice(0, tenute).join(" "),
+    paroleTotali: parole.length,
+    paroleInviate: tenute,
+    byte,
+    troncato: tenute < parole.length
+  };
+}
+
+// Stessa regola del firmware per scegliere la lettera in rosso
+function calcolaIndiceORP(lunghezza) {
+  if (lunghezza <= 1) return 0;
+  if (lunghezza <= 5) return 1;
+  if (lunghezza <= 9) return 2;
+  if (lunghezza <= 13) return 3;
+  if (lunghezza <= 17) return 4;
+  if (lunghezza <= 21) return 5;
+  if (lunghezza <= 25) return 6;
+  return 7;
+}
+
+function dividiParola(parola) {
+  const caratteri = Array.from(parola);
+  if (caratteri.length === 0) return { prima: "", orp: "", dopo: "" };
+  const indice = Math.min(calcolaIndiceORP(caratteri.length), caratteri.length - 1);
+  return {
+    prima: caratteri.slice(0, indice).join(""),
+    orp: caratteri[indice],
+    dopo: caratteri.slice(indice + 1).join("")
+  };
+}
+
+// ------------------------------------------------------------------
+// PDF -> testo
+// ------------------------------------------------------------------
+function mediana(valori) {
+  const ordinati = valori.slice().sort((a, b) => a - b);
+  const m = Math.floor(ordinati.length / 2);
+  return ordinati.length % 2 ? ordinati[m] : (ordinati[m - 1] + ordinati[m]) / 2;
+}
+
+// Come la mediana, ma ogni valore pesa quanto il suo numero di caratteri: una sola lettera
+// grande (capolettera) non deve far sembrare "grande" tutta la riga.
+function medianaPesata(valori, pesi) {
+  const coppie = valori.map((v, i) => [v, Math.max(1, pesi[i])]).sort((a, b) => a[0] - b[0]);
+  const totale = coppie.reduce((somma, c) => somma + c[1], 0);
+  let somma = 0;
+  for (const [v, peso] of coppie) {
+    somma += peso;
+    if (somma >= totale / 2) return v;
+  }
+  return coppie[coppie.length - 1][0];
+}
+
+// Mette sulla stessa riga i frammenti con la stessa altezza (y), dall'alto verso il basso.
+// Nei PDF la y cresce verso l'alto.
+function raggruppaInRighe(frammenti, tolleranza) {
+  const ordinati = frammenti.slice().sort((a, b) => b.y - a.y || a.x - b.x);
+  const righe = [];
+  for (const f of ordinati) {
+    const ultima = righe[righe.length - 1];
+    if (ultima && Math.abs(ultima.y - f.y) <= tolleranza) ultima.frammenti.push(f);
+    else righe.push({ y: f.y, frammenti: [f] });
+  }
+  for (const r of righe) r.frammenti.sort((a, b) => a.x - b.x);
+  return righe;
+}
+
+function testoDellaRiga(riga, altezzaTipica) {
+  let testo = "";
+  let fine = null;
+  let precedente = null;
+  for (const f of riga.frammenti) {
+    if (fine !== null) {
+      const vuoto = f.x - fine;
+      // una lettera molto piu' grande seguita da minuscole e' un capolettera: "N" + "on" = "Non"
+      const capolettera = precedente.s.trim().length === 1 && /[A-Za-z\u00C0-\u00FF]/.test(precedente.s) &&
+                          precedente.h >= 1.5 * f.h && /^[a-z\u00DF-\u00FF]/.test(f.s.trim());
+      if (vuoto > 0.18 * altezzaTipica && !capolettera && !testo.endsWith(" ") && !f.s.startsWith(" ")) testo += " ";
+    }
+    testo += f.s;
+    fine = f.x + f.w;
+    precedente = f;
+  }
+  return testo.replace(/\s+/g, " ").trim();
+}
+
+// Una riga con il suo testo e le misure che servono per riconoscere i titoli
+function creaRiga(riga, altezzaTipica) {
+  const f = riga.frammenti;
+  return {
+    y: riga.y,
+    testo: testoDellaRiga(riga, altezzaTipica),
+    h: medianaPesata(f.map((x) => x.h), f.map((x) => x.s.length)),
+    x0: Math.min(...f.map((x) => x.x)),
+    x1: Math.max(...f.map((x) => x.x + x.w))
+  };
+}
+
+// Cerca una striscia verticale vuota in mezzo alla pagina: il segno di due colonne.
+// Ritorna {inizio, fine, centro} in coordinate della pagina, oppure null.
+function trovaSpazioTraColonne(frammenti, x0, larghezza, numeroRighe) {
+  const copertura = new Array(Math.ceil(larghezza) + 2).fill(0);
+  for (const f of frammenti) {
+    const a = Math.max(0, Math.floor(f.x - x0));
+    const b = Math.min(copertura.length - 1, Math.ceil(f.x - x0 + f.w));
+    for (let i = a; i <= b; i++) copertura[i]++;
+  }
+  const soglia = Math.max(1, Math.floor(0.1 * numeroRighe));   // qualche riga a tutta larghezza e' normale
+  const da = Math.floor(larghezza * 0.3), a = Math.ceil(larghezza * 0.7);
+
+  let migliore = null, inizio = null;
+  for (let i = da; i <= a + 1; i++) {
+    const vuoto = i <= a && copertura[i] <= soglia;
+    if (vuoto && inizio === null) inizio = i;
+    if (!vuoto && inizio !== null) {
+      if (!migliore || (i - 1 - inizio) > (migliore.fine - migliore.inizio)) migliore = { inizio, fine: i - 1 };
+      inizio = null;
+    }
+  }
+  if (!migliore || (migliore.fine - migliore.inizio + 1) < 8) return null;   // troppo stretta per essere una "strada"
+
+  const centro = x0 + (migliore.inizio + migliore.fine) / 2;
+  let sinistra = 0, destra = 0;
+  for (const f of frammenti) (f.x + f.w / 2 < centro ? sinistra++ : destra++);
+  if (sinistra < 0.2 * frammenti.length || destra < 0.2 * frammenti.length) return null;   // una colonna sola, con margini larghi
+
+  return { inizio: x0 + migliore.inizio, fine: x0 + migliore.fine, centro };
+}
+
+// Fascia in cima e in fondo alla pagina dove stanno numeri di pagina e intestazioni
+const FASCIA_MARGINI = 0.15;
+
+// Toglie un numero (di pagina) attaccato a una riga di margine ma staccato dal resto:
+// "12        Titolo del libro"  oppure  "Maria Di Biase        6"
+function togliNumeriAgliEstremi(riga, altezzaTipica) {
+  const f = riga.frammenti;
+  const soloCifre = (x) => /^\d{1,4}\.?$/.test(x.s.trim());
+  const staccato = (a, b) => (b.x - (a.x + a.w)) >= 2 * altezzaTipica;
+  if (f.length >= 2 && soloCifre(f[0]) && staccato(f[0], f[1])) f.shift();
+  if (f.length >= 2 && soloCifre(f[f.length - 1]) && staccato(f[f.length - 2], f[f.length - 1])) f.pop();
+}
+
+// Segna le righe che sono titoli: scritte in un corpo piu' grande del testo, oppure
+// corte, senza punteggiatura finale e circondate da spazio vuoto sopra e sotto.
+function segnaTitoli(righe, altezzaCorpo) {
+  if (righe.length === 0) return;
+  const distanze = [];
+  for (let i = 1; i < righe.length; i++) {
+    const d = righe[i - 1].y - righe[i].y;
+    if (d > 0) distanze.push(d);
+  }
+  // Interlinea normale = una delle distanze piu' piccole: i titoli e gli spazi tra i blocchi
+  // sono distanze grandi e non devono falsare la stima (la mediana in una pagina con poche righe lo fa).
+  const ordinate = distanze.slice().sort((a, b) => a - b);
+  const passo = distanze.length >= 3 ? ordinate[Math.floor((ordinate.length - 1) * 0.25)] : 1.3 * altezzaCorpo;
+  const larghezzaTipica = mediana(righe.map((r) => r.x1 - r.x0));
+  // distanza dalla riga precedente/successiva della stessa colonna (Infinity = inizio/fine colonna)
+  const sopra = (i) => (i > 0 && righe[i - 1].y > righe[i].y) ? righe[i - 1].y - righe[i].y : Infinity;
+  const sotto = (i) => (i + 1 < righe.length && righe[i + 1].y < righe[i].y) ? righe[i].y - righe[i + 1].y : Infinity;
+
+  righe.forEach((r, i) => {
+    const lettere = (r.testo.match(/[A-Za-z\u00C0-\u00FF]/g) || []).length;
+    if (lettere < 3) return;   // numeri, lettere capoverso isolate, simboli
+    const grande = r.h >= 1.2 * altezzaCorpo;
+    const isolata = sopra(i) >= 1.7 * passo && sotto(i) >= 1.7 * passo &&
+                    !/[.,;:!?\u2026\u00BB"'\u201D\u2019)\]]$/.test(r.testo) &&
+                    (r.x1 - r.x0) <= 0.85 * larghezzaTipica;
+    r.titolo = grande || isolata;
+  });
+}
+
+// Ordine di lettura di una pagina. Ritorna [{testo, yRel, titolo}] con yRel da 0 (fondo) a 1 (cima).
+function ordinaPagina(items, view) {
+  const [x0, y0, x1, y1] = view;
+  const larghezza = x1 - x0, altezzaPagina = y1 - y0;
+
+  const frammenti = [];
+  for (const it of items) {
+    if (typeof it.str !== "string" || it.str.trim() === "") continue;
+    const t = it.transform;
+    frammenti.push({ x: t[4], y: t[5], w: it.width, h: Math.abs(it.height) || Math.abs(t[3]) || 10, s: it.str });
+  }
+  if (frammenti.length === 0) return [];
+
+  const altezzaTipica = medianaPesata(frammenti.map((f) => f.h), frammenti.map((f) => f.s.length));
+  const tolleranza = 0.5 * altezzaTipica;
+  const tutteRighe = raggruppaInRighe(frammenti, tolleranza);
+
+  // numeri di pagina attaccati alle righe dei margini
+  for (const r of tutteRighe) {
+    const rel = (r.y - y0) / altezzaPagina;
+    if (rel > 1 - FASCIA_MARGINI || rel < FASCIA_MARGINI) togliNumeriAgliEstremi(r, altezzaTipica);
+  }
+  const rimasti = tutteRighe.filter((r) => r.frammenti.length > 0);
+  const strada = trovaSpazioTraColonne(rimasti.flatMap((r) => r.frammenti), x0, larghezza, rimasti.length);
+
+  let righe;   // [{y, testo, h, x0, x1}]
+  if (!strada) {
+    righe = rimasti.map((r) => creaRiga(r, altezzaTipica));
+  } else {
+    // Le righe che attraversano la strada (titoli, numeri di pagina) restano intere;
+    // tutte le altre vanno divise in colonna sinistra e colonna destra.
+    const intere = [], colonnaSx = [], colonnaDx = [];
+    for (const r of rimasti) {
+      const attraversa = r.frammenti.some((f) => f.x < strada.fine && f.x + f.w > strada.inizio);
+      if (attraversa) {
+        intere.push(creaRiga(r, altezzaTipica));
+      } else {
+        const sx = r.frammenti.filter((f) => f.x + f.w / 2 < strada.centro);
+        const dx = r.frammenti.filter((f) => f.x + f.w / 2 >= strada.centro);
+        if (sx.length) colonnaSx.push(creaRiga({ y: r.y, frammenti: sx }, altezzaTipica));
+        if (dx.length) colonnaDx.push(creaRiga({ y: r.y, frammenti: dx }, altezzaTipica));
+      }
+    }
+    // Tra due righe intere si legge prima tutta la colonna sinistra, poi tutta la destra
+    righe = [];
+    let alto = Infinity;
+    for (let i = 0; i <= intere.length; i++) {
+      const basso = i < intere.length ? intere[i].y : -Infinity;
+      const nellaZona = (r) => r.y < alto && r.y > basso;
+      righe.push(...colonnaSx.filter(nellaZona), ...colonnaDx.filter(nellaZona));
+      if (i < intere.length) righe.push(intere[i]);
+      alto = basso;
+    }
+  }
+  righe = righe.filter((r) => r.testo !== "");
+  segnaTitoli(righe, altezzaTipica);
+  return righe.map((r) => ({ testo: r.testo, yRel: (r.y - y0) / altezzaPagina, titolo: !!r.titolo }));
+}
+
+// Riconosce "12", "- 12 -", "pag. 12", "Pagina 12", "Page 12", "iv", "3/10", "Pagina 3 di 10"
+const RE_NUMERO_PAGINA = /^(?:pag(?:ina|e|\.)?\s*)?[-\u2013\u2014]?\s*(?:\d{1,4}|[ivxlcdm]{1,7})(?:\s*(?:\/|di|of)\s*\d{1,4})?\s*[-\u2013\u2014]?$/i;
+// Come sopra ma solo cifre (senza numeri romani, che potrebbero essere parole come "di" o "mi")
+const RE_SOLO_CIFRE = /^(?:pag(?:ina|e|\.)?\s*)?[-\u2013\u2014]?\s*\d{1,4}(?:\s*(?:\/|di|of)\s*\d{1,4})?\s*[-\u2013\u2014]?\.?$/i;
+const chiaveRipetuta = (t) => t.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
+
+// Numeri che salgono di uno da una pagina alla successiva, alla stessa altezza
+// (7, 8, 9...): sono numeri di pagina, ovunque siano scritti.
+function trovaNumeriInSequenza(pagine) {
+  const candidati = pagine.map((righe) =>
+    righe.filter((r) => /^\d{1,4}\.?$/.test(r.testo.trim())).map((r) => ({ r, v: parseInt(r.testo, 10) })));
+  const daTogliere = new Set();
+  for (let i = 0; i + 1 < pagine.length; i++) {
+    for (const a of candidati[i]) {
+      for (const b of candidati[i + 1]) {
+        if (b.v === a.v + 1 && Math.abs(a.r.yRel - b.r.yRel) <= 0.06) {
+          daTogliere.add(a.r);
+          daTogliere.add(b.r);
+        }
+      }
+    }
+  }
+  return daTogliere;
+}
+
+// Toglie numeri di pagina e intestazioni/pie' di pagina che si ripetono.
+function rimuoviIntestazioniEPiedi(pagine) {
+  const ZONA_STRETTA = 0.08;
+  const inZona = (r, zona) => r.yRel > 1 - zona || r.yRel < zona;
+
+  const inSequenza = trovaNumeriInSequenza(pagine);
+
+  const conteggio = new Map();
+  for (const righe of pagine) {
+    const viste = new Set(righe.filter((r) => inZona(r, ZONA_STRETTA)).map((r) => chiaveRipetuta(r.testo)));
+    for (const k of viste) conteggio.set(k, (conteggio.get(k) || 0) + 1);
+  }
+  const minimo = Math.max(2, Math.ceil(0.4 * pagine.length));
+
+  return pagine.map((righe) => righe.filter((r) => {
+    const testo = r.testo.trim();
+    if (inSequenza.has(r)) return false;
+    // numeri da soli: fascia larga (i numeri stanno spesso piu' dentro di quanto si pensi)
+    if (inZona(r, FASCIA_MARGINI) && RE_SOLO_CIFRE.test(testo)) return false;
+    // intestazioni ripetute e numeri romani: solo nella fascia stretta, per non toccare i titoli
+    if (inZona(r, ZONA_STRETTA)) {
+      if (RE_NUMERO_PAGINA.test(testo)) return false;
+      if (pagine.length >= 3 && (conteggio.get(chiaveRipetuta(testo)) || 0) >= minimo) return false;
+    }
+    return true;
+  }));
+}
+
+// Ai titoli aggiunge un punto finale (se manca): il lettore fa una pausa piu' lunga dopo la
+// punteggiatura, e cosi' il titolo si stacca dal testo. Piu' righe di titolo di fila
+// (titolo andato a capo) contano come un titolo solo.
+function righeConPausaDopoTitoli(righe) {
+  const fuori = [];
+  let gruppo = [];
+  const chiudi = () => {
+    if (gruppo.length === 0) return;
+    let t = gruppo.join(" ");
+    if (!/[.,;:!?\u2026]$/.test(t)) t += ".";
+    fuori.push(t);
+    gruppo = [];
+  };
+  for (const r of righe) {
+    if (r.titolo) gruppo.push(r.testo);
+    else { chiudi(); fuori.push(r.testo); }
+  }
+  chiudi();
+  return fuori;
+}
+
+// Unisce le righe; "conti-" a fine riga + "nuare" a inizio riga diventa "continuare".
+function unisciRighe(righe) {
+  let testo = "";
+  for (const riga of righe) {
+    if (testo === "") { testo = riga; continue; }
+    if (/[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF]-$/.test(testo) && /^[a-z\u00DF-\u00F6\u00F8-\u00FF]/.test(riga)) {
+      testo = testo.slice(0, -1) + riga;
+    } else if (testo.endsWith("\u00AD")) {
+      testo = testo.slice(0, -1) + riga;
+    } else {
+      testo += " " + riga;
+    }
+  }
+  return testo;
+}
+
+// pdf = documento aperto con pdf.js; da/a = numeri di pagina (da 1), inclusi
+async function estraiTestoDaPdf(pdf, da, a, alProgresso) {
+  const richieste = a - da + 1;
+  // Per riconoscere intestazioni e numeri servono almeno 3 pagine a confronto.
+  // Se ne hai chieste meno, ne leggiamo alcune vicine solo per il confronto e poi le scartiamo.
+  const vicine = richieste < 3 ? 2 : 0;
+  const primaAnalisi = Math.max(1, da - vicine);
+  const ultimaAnalisi = Math.min(pdf.numPages, a + vicine);
+
+  const pagine = [];
+  for (let n = primaAnalisi; n <= ultimaAnalisi; n++) {
+    const pagina = await pdf.getPage(n);
+    const contenuto = await pagina.getTextContent();
+    pagine.push(ordinaPagina(contenuto.items, pagina.view));
+    if (alProgresso) alProgresso(n - primaAnalisi + 1, ultimaAnalisi - primaAnalisi + 1);
+  }
+
+  const pulite = rimuoviIntestazioniEPiedi(pagine);
+  const scelte = pulite.slice(da - primaAnalisi, da - primaAnalisi + richieste);
+  const testo = unisciRighe(righeConPausaDopoTitoli(scelte.flat()));
+  return { testo, pagine: richieste, caratteri: testo.length };
+}
+
+// Aspetta la conferma del lettore (notifica "fatto" o "errore")
+class AttesaEsito {
+  constructor() {
+    this.conclusa = false;
+    this.timer = null;
+    this.promessa = new Promise((ok, ko) => { this._ok = ok; this._ko = ko; });
+    this.promessa.catch(() => {});   // evita avvisi se l'esito arriva prima che qualcuno lo aspetti
+  }
+  stato(valore) {
+    if (this.conclusa) return;
+    if (valore === STATUS_DONE) this._concludi(() => this._ok());
+    else if (valore === STATUS_ERROR) this._concludi(() => this._ko(new Error("Il lettore ha segnalato un errore di ricezione")));
+  }
+  avviaTimeout(ms) {
+    if (this.conclusa) return;
+    this.timer = setTimeout(
+      () => this._concludi(() => this._ko(new Error("Il lettore non ha confermato la ricezione"))), ms);
+  }
+  _concludi(azione) {
+    this.conclusa = true;
+    if (this.timer) clearTimeout(this.timer);
+    azione();
+  }
+}
+
+async function scrivi(caratteristica, dati) {
+  if (caratteristica.writeValueWithResponse) await caratteristica.writeValueWithResponse(dati);
+  else await caratteristica.writeValue(dati);
+}
+
+// Protocollo del firmware: prima LENGTH (4 byte, little endian), poi i CHUNK
+async function inviaTesto(car, testo, alProgresso, attesa) {
+  const byte = new TextEncoder().encode(testo);
+
+  const lunghezza = new Uint8Array(4);
+  new DataView(lunghezza.buffer).setUint32(0, byte.length, true);   // true = little endian
+  await scrivi(car.lunghezza, lunghezza);
+
+  for (let i = 0; i < byte.length; i += DIMENSIONE_CHUNK) {
+    await scrivi(car.chunk, byte.slice(i, i + DIMENSIONE_CHUNK));
+    alProgresso(Math.min(i + DIMENSIONE_CHUNK, byte.length), byte.length);
+  }
+
+  attesa.avviaTimeout(6000);
+  await attesa.promessa;
+  return byte.length;
+}
+
+// Pulizia + limiti, tutto insieme
+function preparaTesto(originale) {
+  const { testo: pulito, rimossi } = pulisciTesto(originale);
+  const limitato = limitaAlDispositivo(pulito);
+  return { ...limitato, rimossi };
+}
+
+// ==================================================================
+// PAGINA
+// ==================================================================
+if (typeof document !== "undefined") {
+  const $ = (id) => document.getElementById(id);
+  const elTesto = $("testo"), elParola = $("parola"), elDati = $("dati");
+  const elAvvisi = $("avvisi"), elInvia = $("btnInvia"), elEsito = $("esito");
+  const elProgresso = $("progresso");
+
+  let caratteristiche = null;     // {lunghezza, chunk, stato} quando collegato
+  let dispositivo = null;
+  let attesaCorrente = null;
+  let invioInCorso = false;
+
+  function mostraStato(testo, classe) {
+    const el = $("statoConnessione");
+    el.textContent = testo;
+    el.className = "stato" + (classe ? " " + classe : "");
+  }
+
+  function aggiornaPulsanti() {
+    const collegato = caratteristiche !== null;
+    $("btnConnetti").hidden = collegato;
+    $("btnScollega").hidden = !collegato;
+    elInvia.disabled = !(collegato && !invioInCorso && preparaTesto(elTesto.value).paroleInviate > 0);
+  }
+
+  function aggiornaAnteprima() {
+    const info = preparaTesto(elTesto.value);
+
+    // Parola in anteprima
+    const prima = info.testo.split(" ")[0] || "";
+    if (prima === "") {
+      elParola.className = "parola vuota";
+      elParola.textContent = "Incolla un testo per vedere l'anteprima";
+      elDati.textContent = "";
+    } else {
+      const { prima: a, orp, dopo } = dividiParola(prima);
+      elParola.className = "parola";
+      elParola.replaceChildren();
+      for (const [classe, contenuto] of [["prima", a], ["orp", orp], ["dopo", dopo]]) {
+        const s = document.createElement("span");
+        s.className = classe;
+        s.textContent = contenuto;
+        elParola.appendChild(s);
+      }
+      const minuti = info.paroleInviate / WPM_STIMA;
+      const durata = minuti < 1 ? "meno di un minuto" : "circa " + Math.round(minuti) + " min";
+      elDati.textContent = info.paroleInviate + " parole, " + info.byte + " byte, " + durata + " a " + WPM_STIMA + " parole al minuto";
+    }
+
+    // Avvisi
+    elAvvisi.replaceChildren();
+    const aggiungi = (messaggio) => {
+      const li = document.createElement("li");
+      li.textContent = messaggio;
+      elAvvisi.appendChild(li);
+    };
+    if (info.troncato) {
+      aggiungi("Il lettore legge al massimo " + LIMITE_PAROLE + " parole per volta: verranno inviate le prime " +
+               info.paroleInviate + " su " + info.paroleTotali + ".");
+    }
+    if (info.rimossi > 0) {
+      aggiungi("Tolti " + info.rimossi + " caratteri che il display non sa disegnare (simboli o alfabeti non latini).");
+    }
+    aggiornaPulsanti();
+  }
+
+  function allaDisconnessione() {
+    caratteristiche = null;
+    mostraStato("Non collegato");
+    aggiornaPulsanti();
+  }
+
+  async function collega() {
+    if (!("bluetooth" in navigator)) {
+      mostraStato(window.isSecureContext
+        ? "Questo browser non supporta il Bluetooth. Usa Chrome o Edge."
+        : "Apri la pagina da http://localhost o da un indirizzo https.", "errore");
+      return;
+    }
+    try {
+      mostraStato("Scelta del dispositivo...");
+      dispositivo = await navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE_UUID] }] });
+      dispositivo.addEventListener("gattserverdisconnected", allaDisconnessione);
+
+      mostraStato("Collegamento...");
+      const server = await dispositivo.gatt.connect();
+      const servizio = await server.getPrimaryService(SERVICE_UUID);
+      const car = {
+        lunghezza: await servizio.getCharacteristic(CHAR_LENGTH_UUID),
+        chunk: await servizio.getCharacteristic(CHAR_CHUNK_UUID),
+        stato: await servizio.getCharacteristic(CHAR_STATUS_UUID)
+      };
+      car.stato.addEventListener("characteristicvaluechanged", (evento) => {
+        if (attesaCorrente) attesaCorrente.stato(evento.target.value.getUint8(0));
+      });
+      await car.stato.startNotifications();
+
+      caratteristiche = car;
+      mostraStato("Collegato a " + (dispositivo.name || "lettore"), "ok");
+    } catch (errore) {
+      caratteristiche = null;
+      if (errore.name === "NotFoundError") {
+        mostraStato("Nessun dispositivo scelto. Se non compare, scollega nRF Connect e riprova.", "errore");
+      } else if (errore.name === "SecurityError") {
+        mostraStato("Il browser blocca il Bluetooth in questa pagina. Se l'hai aperta dentro un'altra app o in un riquadro, aprila direttamente in Chrome.", "errore");
+      } else {
+        mostraStato("Collegamento non riuscito: " + errore.message, "errore");
+      }
+    }
+    aggiornaPulsanti();
+  }
+
+  function scollega() {
+    if (dispositivo && dispositivo.gatt.connected) dispositivo.gatt.disconnect();
+    allaDisconnessione();
+  }
+
+  async function invia() {
+    if (!caratteristiche || invioInCorso) return;
+    const info = preparaTesto(elTesto.value);
+    if (info.paroleInviate === 0) return;
+
+    invioInCorso = true;
+    aggiornaPulsanti();
+    elEsito.className = "esito";
+    elEsito.textContent = "Invio in corso...";
+    elProgresso.hidden = false;
+    elProgresso.max = info.byte;
+    elProgresso.value = 0;
+
+    attesaCorrente = new AttesaEsito();
+    try {
+      await inviaTesto(caratteristiche, info.testo,
+        (fatti, totali) => { elProgresso.value = fatti; }, attesaCorrente);
+      elEsito.className = "esito ok";
+      elEsito.textContent = "Inviato: " + info.paroleInviate + " parole. La lettura parte sul lettore.";
+    } catch (errore) {
+      elEsito.className = "esito errore";
+      elEsito.textContent = "Invio non riuscito: " + errore.message +
+        ". Controlla il collegamento e riprova.";
+    } finally {
+      attesaCorrente = null;
+      invioInCorso = false;
+      elProgresso.hidden = true;
+      aggiornaPulsanti();
+    }
+  }
+
+  // ---- PDF ----
+  const elPannelloPdf = $("pannelloPdf"), elDa = $("paginaDa"), elA = $("paginaA");
+  const elEstrai = $("btnEstrai");
+  let pdfCorrente = null;
+
+  if (typeof pdfjsLib !== "undefined") {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+
+  function messaggioPdf(testo, classe) {
+    const el = $("esitoPdf");
+    el.textContent = testo;
+    el.className = "stato" + (classe ? " " + classe : "");
+  }
+
+  async function apriPdf(file) {
+    elPannelloPdf.hidden = true;
+    pdfCorrente = null;
+    if (typeof pdfjsLib === "undefined") {
+      messaggioPdf("La libreria per leggere i PDF non si e' caricata: serve una connessione a internet.", "errore");
+      return;
+    }
+    try {
+      messaggioPdf("Apertura del PDF...");
+      const buffer = await file.arrayBuffer();
+      pdfCorrente = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+      const n = pdfCorrente.numPages;
+      $("infoPdf").textContent = "Il PDF ha " + n + (n === 1 ? " pagina." : " pagine.");
+      elDa.max = n; elA.max = n;
+      elDa.value = 1; elA.value = Math.min(n, 10);
+      elPannelloPdf.hidden = false;
+      elTesto.value = "";
+      aggiornaAnteprima();
+      messaggioPdf(n > 10
+        ? "Scegli le pagine del capitolo che vuoi leggere, poi premi Estrai il testo."
+        : "Premi Estrai il testo.");
+    } catch (errore) {
+      pdfCorrente = null;
+      if (errore && errore.name === "PasswordException") {
+        messaggioPdf("Il PDF e' protetto da password: non posso leggerlo.", "errore");
+      } else {
+        messaggioPdf("Non riesco ad aprire questo PDF: " + (errore && errore.message ? errore.message : errore), "errore");
+      }
+    }
+  }
+
+  async function estraiPdf() {
+    if (!pdfCorrente) return;
+    const n = pdfCorrente.numPages;
+    let da = parseInt(elDa.value, 10), a = parseInt(elA.value, 10);
+    if (!(da >= 1) || !(a >= 1)) { messaggioPdf("Scrivi due numeri di pagina validi.", "errore"); return; }
+    da = Math.min(da, n); a = Math.min(a, n);
+    if (da > a) [da, a] = [a, da];
+    elDa.value = da; elA.value = a;
+
+    elEstrai.disabled = true;
+    try {
+      const r = await estraiTestoDaPdf(pdfCorrente, da, a,
+        (fatte, totali) => messaggioPdf("Lettura pagina " + fatte + " di " + totali + "..."));
+      if (r.caratteri < 25 * r.pagine) {
+        elTesto.value = "";
+        messaggioPdf("In queste pagine non trovo testo: sembra una scansione (immagini). Servirebbe un programma di riconoscimento dei caratteri (OCR).", "errore");
+      } else {
+        elTesto.value = r.testo;
+        messaggioPdf("Estratte le pagine da " + da + " a " + a + ". Controlla il testo qui sotto: puoi correggerlo prima di inviare.", "ok");
+      }
+    } catch (errore) {
+      messaggioPdf("Estrazione non riuscita: " + errore.message, "errore");
+    } finally {
+      elEstrai.disabled = false;
+      aggiornaAnteprima();
+    }
+  }
+
+  async function leggiFileTesto(file) {
+    const buffer = await file.arrayBuffer();
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch (e) {
+      // I .txt salvati da Blocco Note "ANSI" non sono UTF-8
+      return new TextDecoder("windows-1252").decode(buffer);
+    }
+  }
+
+  $("btnConnetti").addEventListener("click", collega);
+  $("btnScollega").addEventListener("click", scollega);
+  elInvia.addEventListener("click", invia);
+  elTesto.addEventListener("input", aggiornaAnteprima);
+  elEstrai.addEventListener("click", estraiPdf);
+  $("file").addEventListener("change", async (evento) => {
+    const file = evento.target.files[0];
+    if (!file) return;
+    $("nomeFile").textContent = file.name;
+    if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") {
+      await apriPdf(file);
+    } else {
+      elPannelloPdf.hidden = true;
+      pdfCorrente = null;
+      messaggioPdf("");
+      elTesto.value = await leggiFileTesto(file);
+      aggiornaAnteprima();
+    }
+    evento.target.value = "";   // permette di riscegliere lo stesso file
+  });
+
+  aggiornaAnteprima();
+}
+</script>
+</body>
+</html>
